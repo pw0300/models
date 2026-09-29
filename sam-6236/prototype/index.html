@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sirrus In-App Channel</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="v7.css?v=20260928b">
+</head>
+<body data-app="v7">
+<div class="shell">
+  <aside class="nav">
+    <div class="brand">sirrus <small>MARTECH</small></div>
+    <div class="ws">Horizon Homes</div>
+    <button data-nav="campaigns" class="active">▣ In-App Campaigns</button>
+    <button data-nav="settings">⚙ In-app settings</button>
+    <a class="legacy" href="legacy.html" data-nav="legacy">↗ Rule simulator (Sep 9 model)</a>
+    <div class="navfoot">PRD Draft v10 · 2026-09-28<br>SCR-IA-01, 02, 03, 05</div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div id="crumb" class="crumb"></div>
+      <div class="topctl">
+        <label>Role <select id="role"><option value="marketer">Marketer</option><option value="admin">Marketing Admin</option><option value="viewer">Viewer</option></select></label>
+        <details class="demo-menu"><summary>Demo states</summary><div class="menu-panel">
+          <label><input type="checkbox" data-demo="screensDown"> Screen list unreachable (CMO-2.5)</label>
+          <label><input type="checkbox" data-demo="resultsDown"> Results fail to load (SCR-IA-05)</label>
+          <button data-act="reset">Reset demo data</button>
+        </div></details>
+      </div>
+    </header>
+    <main id="app"></main>
+  </div>
+</div>
+<div id="modal" class="modal"></div>
+<div id="toast" class="toast" role="status"></div>
+<div id="se-probe" aria-hidden="true"></div>
+<script src="v7.js?v=20260928d"></script>
+</body>
+</html>
+
+</body></html>
