@@ -21,7 +21,6 @@ const QUIET_DEFAULT = ['/checkout', '/payment_gateway', '/document_signing', '/o
 const APP_SCREENS = ['/home', '/project/centralis', '/floor-plans', '/book-visit', '/cost-sheet', '/kyc', '/rm-video-call', '/offers'];
 const TOKENS = { first_name: 'Valued Homebuyer', project_name: 'our new project', city: 'your city', rm_name: 'your relationship manager' };
 const EVENTS = ['Screen viewed', 'Viewed floor plan', 'Opened cost sheet', 'Shortlisted a unit', 'Started a booking'];
-const SERVICES = ['Site Visit Booking', 'Cost Sheet Service', 'Payments'];
 const SEGMENTS = [
   { id: 's1', name: 'Viewed 3BHK twice, Pune', users: 11300, reach: 4120 }, // §4B walkthrough + P0 AC
   { id: 's2', name: 'Centralis enquiries, last 30 days', users: 2450, reach: 1180 },
@@ -42,7 +41,6 @@ const REASONS = [ // §4B IA05-11 rows in PRD order, meanings from §2 / §3 / �
   ['offline', 'Offline too long', 'The phone stayed offline past the 24h offline limit.'],
   ['quiet', 'Quiet screen', 'The trigger fired only on screens where overlays never show.'],
   ['transactional', 'Transactional message', 'A transactional message was on screen, so the overlay waited.'],
-  ['outage', 'Outage on dependency', 'A service in "Depends on" had an open S1/S2 incident.'],
   ['fatigue', 'Fatigue limit', 'Already saw the app-wide maximum of overlays for the period.'],
   ['priority', 'Lost on priority', 'A higher-priority overlay won the screen every time.'],
   ['online', 'Online check failed', 'The offer could not be confirmed as still valid within 1.5s.'],
@@ -73,6 +71,43 @@ function resolveTokens(text, lead) {
 function visibleLength(text) { return resolveTokens(text, null).length; } // tokens count as their default value
 function buttonCounter(content) { return (content.b2 ? 2 : 1) + '/2'; }
 
+// ---------- UTM tracking on buttons that open something (Screen Name / External URL) ----------
+const UTM_KEYS = [['source', 'Source', true], ['medium', 'Medium', true], ['campaign', 'Campaign', true], ['term', 'Term', false], ['content', 'Content', false]];
+const UTM_MSG = 'UTM values can use letters, numbers, - _ and . only.';
+const utmSlug = n => String(n || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_.-]/g, '').slice(0, 100);
+function opensSomething(b) { const a = (b && b.action) || 'screen'; return a === 'screen' || a === 'url'; }
+function utmVals(b, name, slot) { // stored value wins; a key never touched falls back to the default
+  const u = (b && b.utm) || {}, d = { source: 'sirrus', medium: 'in_app', campaign: utmSlug(name), term: '', content: slot }, o = {};
+  UTM_KEYS.forEach(([k]) => { o[k] = u[k] === undefined ? d[k] : String(u[k]); });
+  return o;
+}
+function utmIssues(b, name, slot, n) {
+  if (!opensSomething(b)) return [];
+  const v = utmVals(b, name, slot), out = [];
+  UTM_KEYS.forEach(([k, l, req]) => {
+    if (req && !v[k].trim()) out.push({ id: 'IA02-18', btn: n, msg: `Button ${n} UTM ${l} is required.` });
+    else if (!/^[A-Za-z0-9_.-]*$/.test(v[k]) || v[k].length > 100) out.push({ id: 'IA02-18', btn: n, msg: `Button ${n} UTM ${l}: ${UTM_MSG}` });
+  });
+  return out;
+}
+function finalLink(b, name, slot, test) { // the link as tapped: existing query kept, the button's utm_ values win
+  const v = utmVals(b, name, slot); if (test) v.source = 'sirrus_test';
+  const base = (b.action || 'screen') === 'url' ? String(b.url || '') : String(b.screen || ''); if (!base) return '';
+  const [pre, ...h] = base.split('#'), [path, ...q] = pre.split('?');
+  const own = k => v[k] !== '' && v[k] != null;
+  const kept = q.join('?').split('&').filter(x => x && !UTM_KEYS.some(([k]) => own(k) && x.toLowerCase().startsWith('utm_' + k + '=')));
+  UTM_KEYS.forEach(([k]) => { if (own(k)) kept.push('utm_' + k + '=' + encodeURIComponent(v[k])); });
+  return path + (kept.length ? '?' + kept.join('&') : '') + (h.length ? '#' + h.join('#') : '');
+}
+function campName() { const c = S.view === 'analytics' ? camp(S.id) : T.edit; return (c && c.name) || ''; }
+function utmLinks(ct, name, test) { // [n, link] for each button that opens something
+  const out = [];
+  if (ct.kind === 'html') { const bs = htmlButtons(ct.html), m = ct.htmlActions || {}; [['primary', 1, 'button_1'], ['secondary', 2, 'button_2']].forEach(([k, n, slot]) => { if (bs.some(b => b.action === k) && m[k] && opensSomething(m[k])) { const l = finalLink(m[k], name, slot, test); if (l) out.push([n, l]); } }); }
+  else [[ct.b1, 1, 'button_1'], [ct.b2, 2, 'button_2']].forEach(([b, n, slot]) => { if (b && opensSomething(b)) { const l = finalLink(b, name, slot, test); if (l) out.push([n, l]); } });
+  return out;
+}
+function utmCaption(ct, opts) { return utmLinks(ct, opts.name != null ? opts.name : campName()).map(([n, l]) => `<div class="ov-utm" title="${esc(l)}">Button ${n} link: <code>${esc(l)}</code></div>`).join(''); }
+
 function contentIssues(ct, ctx) {
   const out = []; if (!ct) return [{ id: 'IA01-05', msg: 'Add content before publishing.' }];
   if (ct.kind === 'html') return htmlIssues(ct).concat(htmlActionIssues(ct, ctx));
@@ -94,6 +129,7 @@ function contentIssues(ct, ctx) {
       if (!b.url) out.push({ id: n === 1 ? 'IA02-04' : 'IA02-05', msg: `Enter an external URL for Button ${n}.` });
       else if (!b.url.startsWith('https://')) out.push({ id: n === 1 ? 'IA02-04' : 'IA02-05', msg: `Button ${n} URL must start with https://.` });
     }
+    utmIssues(b, ctx && ctx.name, 'button_' + n, n).forEach(x => out.push(x));
   });
   if (ctx && ctx.screensDown && buttons.length) out.push({ id: 'CMO-2.5', msg: "Couldn't check deep links right now. Try again." });
   if (ct.media && ct.media.error) out.push({ id: 'IA02-03', msg: ct.media.error });
@@ -153,6 +189,7 @@ function htmlActionIssues(ct, ctx) { // IA02-15: where a button goes is set in S
       if (!b.screen) out.push({ id: 'IA02-15', btn: n, msg: `Pick a screen for Button ${n}.` });
       else if (ctx && !ctx.screensDown && !ctx.screens.includes(b.screen)) out.push({ id: 'CMO-2.5', btn: n, msg: `Button ${n} links to ${b.screen}, which is not a screen in this app.` });
     } else if (act === 'url' && !String(b.url || '').startsWith('https://')) out.push({ id: 'IA02-15', btn: n, msg: 'URL must start with https://' });
+    utmIssues(b, ctx && ctx.name, 'button_' + n, n).forEach(x => out.push(x));
   });
   return out;
 }
@@ -230,7 +267,7 @@ globalThis.IA = { P1_OVERUSE, HTML_ELEMENTS, HTML_ATTRS, htmlButtons, htmlIssues
 // ---------- browser app ----------
 if (typeof document === 'undefined' || !document.querySelector || !document.querySelector('#app') || !document.body || !document.body.dataset || document.body.dataset.app !== 'v7') return;
 
-const KEY = 'sirrus-inapp-v10';
+const KEY = 'sirrus-inapp-v11';
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -258,7 +295,7 @@ const SAMPLE_CSS = `.due { padding: 18px; font-family: system-ui, sans-serif; co
 function seed() {
   const now = Date.now();
   const diwaliContent = { format: 'modal', headline: '{{first_name | "Valued Homebuyer"}}, your Diwali 3BHK visit', body: 'Festive prices on Centralis 3BHK homes end 3 Nov. Book a site visit and meet {{rm_name | "your relationship manager"}} at the sample flat.', media: { mode: 'url', src: SAMPLE_IMG, ratio: '16:9', error: '' }, b1: { label: 'Book a visit', screen: '/book-visit' }, b2: { label: 'Maybe later', action: 'dismiss', screen: '' }, theme: { mode: 'light', color: '#4f46e5', radius: 'soft', dim: true }, bgTap: true, timeout: 8 };
-  const base = { trigger: { type: 'event', event: 'Screen viewed', screen: '/project/centralis', n: 1 }, cap: 3, cooldown: 24, priority: 3, depends: [], onlineCheck: false, triggerDelay: DEFAULTS.triggerDelay, inSessionSpacing: DEFAULTS.inSessionSpacing, startMode: 'schedule', pending: null };
+  const base = { trigger: { type: 'event', event: 'Screen viewed', screen: '/project/centralis', n: 1 }, cap: 3, cooldown: 24, priority: 3, onlineCheck: false, triggerDelay: DEFAULTS.triggerDelay, inSessionSpacing: DEFAULTS.inSessionSpacing, startMode: 'schedule', pending: null };
   const pubStart = now - 44 * H;
   return {
     role: 'marketer', view: 'list', id: null, tab: 'analytics', mode: 'unique', version: 'all', showArchived: false, platform: 'android',
@@ -267,25 +304,25 @@ function seed() {
     devices: [{ id: 'd1', name: 'QA Pixel 9', model: 'Pixel 9', platform: 'android' }, { id: 'd2', name: 'Meera iPhone', model: 'iPhone 16 Pro', platform: 'ios' }],
     seq: 10242, modelIdx: 0, tenantImpr7d: 5200, // demo: the tenant's in-app impressions over the last 7 days (IA05-15)
     campaigns: [
-      { ...clone(base), id: 'IA-10231', name: 'Diwali 3BHK site visit', status: 'Ended', version: 1, segment: 's1', content: diwaliContent, cap: 2, depends: ['Site Visit Booking'], start: '2025-10-31T10:00', end: '2025-11-03T23:59', createdOn: '2025-10-28T16:20', createdBy: 'Meera Kulkarni', updated: now,
+      { ...clone(base), id: 'IA-10231', name: 'Diwali 3BHK site visit', status: 'Ended', version: 1, segment: 's1', content: diwaliContent, cap: 2, start: '2025-10-31T10:00', end: '2025-11-03T23:59', createdOn: '2025-10-28T16:20', createdBy: 'Meera Kulkarni', updated: now,
         stats: { all: { eligible: 4120, shownU: 2380, shownT: 2800, clickedU: 410, clickedT: 410, dismissedU: 1050, dismissedT: 1285, still: 0,
-          reasons: { optout: 8, noopen: 980, notrigger: 610, quiet: 12, outage: 4, fatigue: 30, priority: 90, online: 0, offline: 6 },
+          reasons: { optout: 8, noopen: 980, notrigger: 610, quiet: 12, transactional: 4, fatigue: 30, priority: 90, online: 0, offline: 6 },
           buttons: { b1: [410, 410], b2: [700, 620], x: [460, 390], back: [80, 70], bg: [45, 40], swipe: [0, 0], timeout: [1105, 940] },
-          kpm: { engaged: 410 } } } },
+          kpm: { engaged: 410 }, screens: [['/book-visit', 290, 352], ['/floor-plans', 74, 98], ['/cost-sheet', 38, 49]] } } },
       { ...clone(base), id: 'IA-10238', name: 'Centralis floor-plan nudge', status: 'Published', version: 2, segment: 's2', trigger: { type: 'event', event: 'Viewed floor plan', screen: '', n: 2 },
         content: { ...clone(diwaliContent), format: 'top', headline: 'Floor plans for {{project_name | "our new project"}}', body: 'See the 3BHK corner layout with the east deck.', media: { mode: 'none', src: '', ratio: '1:1', error: '' }, b1: { label: 'See layout', screen: '/floor-plans' }, b2: null },
         start: toLocal(pubStart), end: toLocal(defaultEnd(pubStart)), createdOn: toLocal(pubStart - 20 * H), createdBy: 'Pratik Wankhede', updated: now,
         stats: {
-          all: { eligible: 1180, shownU: 610, shownT: 833, clickedU: 92, clickedT: 92, dismissedU: 140, dismissedT: 151, still: 570, reasons: {}, buttons: { b1: [92, 92], x: [110, 104], swipe: [41, 38], timeout: [590, 455] }, kpm: { engaged: 92 } },
-          1: { eligible: 1180, shownU: 402, shownT: 520, clickedU: 51, clickedT: 51, dismissedU: 88, dismissedT: 95, still: null, reasons: {}, buttons: { b1: [51, 51], x: [70, 66], swipe: [25, 24], timeout: [374, 290] }, kpm: { engaged: 51 } },
-          2: { eligible: 1180, shownU: 263, shownT: 313, clickedU: 41, clickedT: 41, dismissedU: 55, dismissedT: 56, still: null, reasons: {}, buttons: { b1: [41, 41], x: [40, 38], swipe: [16, 14], timeout: [216, 165] }, kpm: { engaged: 41 } } } },
+          all: { eligible: 1180, shownU: 610, shownT: 833, clickedU: 92, clickedT: 92, dismissedU: 140, dismissedT: 151, still: 570, reasons: {}, buttons: { b1: [92, 92], x: [110, 104], swipe: [41, 38], timeout: [590, 455] }, kpm: { engaged: 92 }, screens: [['/floor-plans', 82, 118], ['/cost-sheet', 7, 9]] },
+          1: { eligible: 1180, shownU: 402, shownT: 520, clickedU: 51, clickedT: 51, dismissedU: 88, dismissedT: 95, still: null, reasons: {}, buttons: { b1: [51, 51], x: [70, 66], swipe: [25, 24], timeout: [374, 290] }, kpm: { engaged: 51 }, screens: [['/floor-plans', 46, 66], ['/cost-sheet', 4, 5]] },
+          2: { eligible: 1180, shownU: 263, shownT: 313, clickedU: 41, clickedT: 41, dismissedU: 55, dismissedT: 56, still: null, reasons: {}, buttons: { b1: [41, 41], x: [40, 38], swipe: [16, 14], timeout: [216, 165] }, kpm: { engaged: 41 }, screens: [['/floor-plans', 36, 52], ['/cost-sheet', 3, 4]] } } },
       { ...clone(base), id: 'IA-10241', name: 'Price drop — Tower B', status: 'Draft', version: 0, segment: 's1', trigger: { type: 'open', event: '', screen: '', n: 1 },
         content: { ...clone(diwaliContent), format: 'drawer', headline: 'Tower B prices just dropped', body: 'Two-bedroom homes in Tower B are now ₹6 lakh lower. See the new cost sheet.', media: { mode: 'none', src: '', ratio: '16:9', error: '' }, b1: { label: 'See new prices', screen: '/offers/legacy' }, b2: null },
         startMode: 'now', start: toLocal(now), end: toLocal(defaultEnd(now)), createdOn: toLocal(now - 3 * H), createdBy: 'Pratik Wankhede', updated: now, stats: {} },
       { ...clone(base), id: 'IA-10240', name: 'Payment due: Centralis demand letter', status: 'Published', version: 1, segment: 's2', priority: 1, cap: 5, cooldown: 12, trigger: { type: 'open', event: '', screen: '', n: 1 }, p1Impr7d: 2080,
         content: { ...clone(diwaliContent), kind: 'html', format: 'modal', html: SAMPLE_HTML, css: SAMPLE_CSS, files: ['hero.webp'], htmlActions: { primary: { action: 'screen', screen: '/cost-sheet', url: '' } } },
         start: toLocal(pubStart), end: toLocal(defaultEnd(pubStart)), createdOn: toLocal(pubStart - 4 * H), createdBy: 'Meera Kulkarni', updated: now,
-        stats: { all: { eligible: 900, shownU: 520, shownT: 2080, clickedU: 300, clickedT: 330, dismissedU: 150, dismissedT: 400, still: 380, reasons: {}, buttons: { b1: [330, 300], b2: [400, 150] }, kpm: { engaged: 300 } } } },
+        stats: { all: { eligible: 900, shownU: 520, shownT: 2080, clickedU: 300, clickedT: 330, dismissedU: 150, dismissedT: 400, still: 380, reasons: {}, buttons: { b1: [330, 300], b2: [400, 150] }, kpm: { engaged: 300 }, screens: [['/cost-sheet', 296, 322]] } } },
     ],
   };
 }
@@ -294,7 +331,7 @@ let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || seed(); } catch (e) { S = seed(); }
 let T = { edit: null, dirty: false, content: null, contentDirty: false, modal: null, refreshAt: Date.now(), seCheck: '' }; // transient
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* storage blocked: demo still works in-memory */ } };
-const ctx = () => ({ role: S.role, now: Date.now(), screens: APP_SCREENS, quiet: S.settings.quiet, screensDown: S.demo.screensDown });
+const ctx = () => ({ name: (T.edit && T.edit.name) || '', role: S.role, now: Date.now(), screens: APP_SCREENS, quiet: S.settings.quiet, screensDown: S.demo.screensDown });
 const camp = id => S.campaigns.find(c => c.id === id);
 const seg = id => SEGMENTS.find(s => s.id === id);
 const can = ev => ({ create: ['marketer', 'admin'], settings: ['admin'], devices: ['marketer', 'admin'] }[ev] || []).includes(S.role);
@@ -318,7 +355,7 @@ function htmlFrame(ct, opts = {}) { // IA02-16: rendered inside the format's con
 function overlayHTML(ct, opts = {}) {
   if (ct.kind === 'html') {
     const f = ct.format, close = `<span class="ov-x ${f === 'full' ? 'x48' : ''}" title="Sirrus close button">×</span>`;
-    const inner = htmlIssues(ct).length ? '<div class="ov-copy"><p class="ph">Preview unavailable. Fix the content check first.</p></div>' : htmlFrame(ct, opts);
+    const inner = htmlIssues(ct).length ? '<div class="ov-copy"><p class="ph">Preview unavailable. Fix the content check first.</p></div>' : htmlFrame(ct, opts) + utmCaption(ct, opts);
     const cls = `ov ov-${f} light ov-html`;
     if (f === 'modal') return `<div class="scrim dim"><div class="${cls}">${close}${inner}</div></div>`;
     if (f === 'drawer') return `<div class="scrim light"><div class="${cls}"><i class="grab"></i>${inner}</div></div>`;
@@ -329,8 +366,8 @@ function overlayHTML(ct, opts = {}) {
   const body = esc(resolveTokens(ct.body, lead));
   const imgOk = ct.media && ct.media.mode !== 'none' && ct.media.src && !ct.media.error;
   const img = imgOk ? `<img class="ov-img r${ct.media.ratio === '1:1' ? '11' : '169'}" src="${esc(ct.media.src)}" alt="">` : '';
-  const btn = (b, i) => b ? `<button class="ov-btn ${i ? 'ghost' : ''}" title="${esc(actionLabel(b))}" style="${i ? `color:${th.color};border-color:${th.color}` : `background:${th.color}`}">${esc(resolveTokens(b.label, lead)) || 'Button ' + (i + 1)}</button>` : '';
-  const btns = `<div class="ov-btns">${btn(ct.b1, 0)}${btn(ct.b2, 1)}</div>`;
+  const btn = (b, i) => b ? `<button class="ov-btn ${i ? 'ghost' : ''}" title="${esc(actionLabel(b))}${opensSomething(b) && finalLink(b, opts.name != null ? opts.name : campName(), i ? 'button_2' : 'button_1') ? ' → ' + esc(finalLink(b, opts.name != null ? opts.name : campName(), i ? 'button_2' : 'button_1')) : ''}" style="${i ? `color:${th.color};border-color:${th.color}` : `background:${th.color}`}">${esc(resolveTokens(b.label, lead)) || 'Button ' + (i + 1)}</button>` : '';
+  const btns = `<div class="ov-btns">${btn(ct.b1, 0)}${btn(ct.b2, 1)}</div>${utmCaption(ct, opts)}`;
   const close = `<span class="ov-x ${f === 'full' ? 'x48' : ''}" title="Close (${f === 'full' ? 48 : 44}px target)">×</span>`;
   const cls = `ov ov-${f} ${th.mode}${opts.big ? ' big' : ''}`, st = `--r:${radius(th.radius)}px`;
   if (f === 'modal') return `<div class="scrim ${th.dim ? 'dim' : ''}"><div class="${cls}" style="${st}">${close}${img}<div class="ov-copy"><h4>${hl}</h4>${body ? `<p>${body}</p>` : ''}${btns}</div></div></div>`;
@@ -425,7 +462,7 @@ function viewList() {
 // ---------- SCR-IA-01 setup ----------
 function newCampaign() {
   const now = Date.now();
-  return { id: null, name: '', status: 'Draft', version: 0, segment: '', content: null, trigger: { type: 'open', event: '', screen: '', n: DEFAULTS.n }, cap: DEFAULTS.cap, cooldown: DEFAULTS.cooldown, priority: DEFAULTS.priority, depends: [], onlineCheck: false, triggerDelay: DEFAULTS.triggerDelay, inSessionSpacing: DEFAULTS.inSessionSpacing, startMode: 'now', start: toLocal(now + H), end: toLocal(defaultEnd(now)), createdBy: 'Pratik Wankhede', stats: {}, pending: null, reachAt: null };
+  return { id: null, name: '', status: 'Draft', version: 0, segment: '', content: null, trigger: { type: 'open', event: '', screen: '', n: DEFAULTS.n }, cap: DEFAULTS.cap, cooldown: DEFAULTS.cooldown, priority: DEFAULTS.priority, onlineCheck: false, triggerDelay: DEFAULTS.triggerDelay, inSessionSpacing: DEFAULTS.inSessionSpacing, startMode: 'now', start: toLocal(now + H), end: toLocal(defaultEnd(now)), createdBy: 'Pratik Wankhede', stats: {}, pending: null, reachAt: null };
 }
 function field(id, label, inner, err, hint) {
   return `<div class="field" data-f="${id}"><label>${label} <em>${id}</em></label>${inner}${hint ? `<div class="hint">${hint}</div>` : ''}${err ? `<div class="err">${esc(err)}</div>` : ''}</div>`;
@@ -460,7 +497,6 @@ function viewSetup() {
   </section>
   <section class="card"><h3>Display rules</h3>
     ${field('IA01-08', 'Frequency cap · Cooldown · Priority', `<div class="grid3"><div><small>Max times per person (1–5)</small>${num('cap', c.cap, RANGES.cap)}</div><div><small>Hours between showings (1–168)</small>${num('cooldown', c.cooldown, RANGES.cooldown)}</div><div><small>Priority, 1 = highest (1–5)</small>${num('priority', c.priority, RANGES.priority)}</div></div>`, errOf('IA01-08'), Number(c.priority) === 1 ? 'Priority 1 skips the app-wide fatigue limit. Keep it for must-see messages.' : 'When two overlays are ready at once, the one closer to 1 shows; ties go to the earlier-published campaign.')}
-    ${field('IA01-09', 'Depends on', `<div class="checks">${SERVICES.map(s => `<label class="inline"><input type="checkbox" data-act="dep" value="${s}" ${c.depends.includes(s) ? 'checked' : ''}> ${s}</label>`).join('')}</div>`, '', 'Not shown while a picked service has an open S1/S2 incident.')}
     ${field('IA01-10', 'Online check', `<label class="switch"><input type="checkbox" data-bind="onlineCheck" ${c.onlineCheck ? 'checked' : ''}><span></span> ${c.onlineCheck ? 'On' : 'Off'}</label>`, '', 'Confirms with Sirrus that the offer is still valid right before showing (waits up to 1.5s). Offline or no answer = not shown.')}
     ${field('IA01-16', 'Trigger delay (seconds) · In-session spacing', `<div class="grid2"><div><small>Trigger delay (0–60s)</small>${num('triggerDelay', c.triggerDelay == null ? 0 : c.triggerDelay, RANGES.triggerDelay)}</div><div><small>Spacing between overlays (0–600s)</small>${num('inSessionSpacing', c.inSessionSpacing == null ? 60 : c.inSessionSpacing, RANGES.inSessionSpacing)}</div></div>`, errOf('IA01-16') || errOf('IA01-17'), 'Delays popup on screen transition; prevents rapid overlay stacking within the same session.')}
     <div class="field ro" data-f="IA01-11"><label>App-wide rules <em>IA01-11</em></label><div class="rorow"><span>Fatigue limit</span><b>${S.settings.fatigue} overlay per 24h</b></div><div class="rorow"><span>Quiet screens</span><b>${S.settings.quiet.map(esc).join(', ')}</b></div>${S.role === 'admin' ? '<button class="link" data-act="nav-settings">Edit in In-app settings</button>' : '<div class="hint">Read-only. A Marketing Admin can change these.</div>'}</div>
@@ -480,9 +516,15 @@ function viewSetup() {
 
 // ---------- SCR-IA-02 content ----------
 function newContent() { return { kind: 'template', html: '', css: '', files: [], htmlActions: {}, format: 'modal', headline: '', body: '', media: { mode: 'none', src: '', ratio: '16:9', error: '' }, b1: { label: '', screen: '' }, b2: null, theme: { mode: 'light', color: '#4f46e5', radius: 'soft', dim: true }, bgTap: true, timeout: DEFAULTS.timeout, test: { devices: [], mode: 'default', lead: '' } }; }
+function utmBlock(path, b, slot, n, issues, pname) { if (!opensSomething(b)) return ''; const v = utmVals(b, pname, slot), errs = issues.filter(i => i.id === 'IA02-18' && i.btn === n);
+  const link = finalLink(b, pname, slot);
+  return `<div class="utm" data-utm="${path}"><div class="utm-h">UTM tracking</div><div class="utm-grid">${UTM_KEYS.map(([k, l, req]) => `<div><small>${l}${req ? '' : ' (optional)'}</small><input id="f-${path}.utm.${k}" data-cbind="${path}.utm.${k}" value="${esc(v[k])}" placeholder="${req ? 'Required' : 'Empty'}"></div>`).join('')}</div>
+    ${errs.map(e => `<div class="err">${esc(e.msg)}</div>`).join('')}
+    <div class="hint">${b.action === 'url' ? 'Added to the link when the button is tapped. Any query string already in the URL stays, and a utm_ value already there is replaced by the value here.' : 'The same values travel with the deep link to the app screen. The SDK hands them to your app so its own analytics can read them, and adds them to the "Screen viewed" event for that screen. They also stay on later "Screen viewed" events in the same app session, until the session ends or a button from another campaign is tapped.'}</div>
+    ${link ? `<div class="hint">Link: <code>${esc(link)}</code></div>` : ''}</div>`; }
 function viewContent() {
   const ct = T.content, F = FORMATS[ct.format], [hl, bl, btl] = F.limits, cx = ctx();
-  const issues = contentIssues(ct, cx), errOf = id => issues.filter(i => i.id === id).map(i => i.msg).join(' ');
+  const pname = cx.name, issues = contentIssues(ct, cx), errOf = id => issues.filter(i => i.id === id).map(i => i.msg).join(' ');
   const cnt = (t, max) => { const n = visibleLength(t); return `<span class="count ${n > max ? 'over' : ''}">${n}/${max}</span>`; };
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label == null ? v : label)}</option>`;
   // §13 decision 32: what a button does is set here, never in the overlay content
@@ -512,8 +554,8 @@ function viewContent() {
       ${ct.media.mode !== 'none' ? `<div class="seg2"><label class="radio"><input type="radio" name="ratio" data-cbind="media.ratio" value="16:9" ${ct.media.ratio === '16:9' ? 'checked' : ''}> 16:9</label><label class="radio"><input type="radio" name="ratio" data-cbind="media.ratio" value="1:1" ${ct.media.ratio === '1:1' ? 'checked' : ''}> 1:1</label></div>` : ''}`, errOf('IA02-03'), ct.media.mode !== 'none' ? 'If the image fails to load on the phone, the overlay shows text only.' : '')}
   </section>
   <section class="card"><div class="card-head"><h3>Buttons</h3><span class="muted">Up to 2 · ${buttonCounter(ct)}</span></div>
-    ${field('IA02-04', `Button 1 ${cnt(ct.b1.label, btl)}`, `<div class="grid2"><input id="f-b1.label" data-cbind="b1.label" value="${esc(ct.b1.label)}" placeholder="Label">${actionSel('b1', ct.b1.action || 'screen', false)}</div>${actionDetail('b1', ct.b1)}`, errOf('IA02-04') || issues.filter(i => i.id === 'CMO-2.5' && /Button 1/.test(i.msg)).map(i => i.msg).join(''))}
-    ${ct.b2 ? field('IA02-05', `Button 2 ${cnt(ct.b2.label, btl)} <button class="link" data-act="remove-b2">Remove</button>`, `<div class="grid2"><input id="f-b2.label" data-cbind="b2.label" value="${esc(ct.b2.label)}" placeholder="Label">${actionSel('b2', ct.b2.action, true)}</div>${actionDetail('b2', ct.b2)}`, errOf('IA02-05') || issues.filter(i => i.id === 'CMO-2.5' && /Button 2/.test(i.msg)).map(i => i.msg).join('')) : `<button data-act="add-b2">+ Add Button</button>`}
+    ${field('IA02-04', `Button 1 ${cnt(ct.b1.label, btl)}`, `<div class="grid2"><input id="f-b1.label" data-cbind="b1.label" value="${esc(ct.b1.label)}" placeholder="Label">${actionSel('b1', ct.b1.action || 'screen', false)}</div>${actionDetail('b1', ct.b1)}${utmBlock('b1', ct.b1, 'button_1', 1, issues, pname)}`, errOf('IA02-04') || issues.filter(i => i.id === 'CMO-2.5' && /Button 1/.test(i.msg)).map(i => i.msg).join(''))}
+    ${ct.b2 ? field('IA02-05', `Button 2 ${cnt(ct.b2.label, btl)} <button class="link" data-act="remove-b2">Remove</button>`, `<div class="grid2"><input id="f-b2.label" data-cbind="b2.label" value="${esc(ct.b2.label)}" placeholder="Label">${actionSel('b2', ct.b2.action, true)}</div>${actionDetail('b2', ct.b2)}${utmBlock('b2', ct.b2, 'button_2', 2, issues, pname)}`, errOf('IA02-05') || issues.filter(i => i.id === 'CMO-2.5' && /Button 2/.test(i.msg)).map(i => i.msg).join('')) : `<button data-act="add-b2">+ Add Button</button>`}
     ${S.demo.screensDown ? `<div class="err">Couldn't check deep links right now. Try again.</div>` : ''}
   </section>
   <section class="card"><h3>Theme</h3><div class="grid4">
@@ -527,8 +569,8 @@ function viewContent() {
     ${S.devices.length ? field('IA02-07', 'Test devices', `<div class="checks">${S.devices.map(d => `<label class="inline"><input type="checkbox" data-act="test-dev" value="${d.id}" ${t.devices.includes(d.id) ? 'checked' : ''}> ${esc(d.name)} <small>${esc(d.model)}</small></label>`).join('')}</div>${can('devices') ? '<button class="link" data-act="add-device">+ Add device</button>' : ''}`, T.testErr === 'dev' ? 'Pick a test device.' : '')
       : `<div class="empty-sm">No test devices yet. ${can('devices') ? '<button data-act="add-device">Add device</button>' : ''}</div>`}
     ${field('IA02-08', 'Personalization', `<div class="seg2"><label class="radio"><input type="radio" name="pm" data-act="test-mode" value="default" ${t.mode === 'default' ? 'checked' : ''}> Default values</label><label class="radio"><input type="radio" name="pm" data-act="test-mode" value="lead" ${t.mode === 'lead' ? 'checked' : ''}> As a buyer</label></div>${t.mode === 'lead' ? `<select data-act="test-lead"><option value="">Pick a lead</option>${LEADS.map(l => `<option value="${l.id}" ${t.lead === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>` : ''}`, T.testErr === 'lead' ? 'Pick a lead to personalise the test.' : '')}
-    <div class="row">${field('IA02-09', '', `<button data-act="send-test">Send test</button>`, '', 'Tests never count in analytics.')}</div>
-    ${T.testSent ? `<div class="okline">Sent. It shows on the next app open.</div><div class="hint">Resolved headline on the phone: “${esc(T.testSent)}”</div>` : ''}
+    <div class="row">${field('IA02-09', '', `<button data-act="send-test">Send test</button>`, '', 'Tests never count in analytics. Button links carry the same UTMs, with utm_source=sirrus_test.')}</div>
+    ${T.testSent ? `<div class="okline">Sent. It shows on the next app open.</div><div class="hint">Resolved headline on the phone: “${esc(T.testSent)}”</div>${utmLinks(ct, pname, true).map(([n, l]) => `<div class="hint">Button ${n} test link: <code>${esc(l)}</code></div>`).join('')}` : ''}
   </section>
   ${journeyFooter(ct, cx)}
   </div>
@@ -550,8 +592,8 @@ function htmlCards(ct, issues) { // IA02-11 to IA02-15
   const bs = htmlButtons(ct.html), map = ct.htmlActions || (ct.htmlActions = {});
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label == null ? v : label)}</option>`;
   const actRow = k => { const b = map[k] || (map[k] = { action: 'screen', screen: '', url: '' }), a = b.action || 'screen';
-    return `<div class="grid2"><select id="f-ha-${k}" data-cbind="htmlActions.${k}.action">${BUTTON_ACTIONS.map(([v, l]) => opt(v, a, l)).join('')}</select>${a === 'screen' ? `<select id="f-ha-${k}-s" data-cbind="htmlActions.${k}.screen">${opt('', b.screen, 'Screen Name')}${APP_SCREENS.map(x => opt(x, b.screen)).join('')}</select>` : a === 'url' ? `<input id="f-ha-${k}-u" data-cbind="htmlActions.${k}.url" value="${esc(b.url || '')}" placeholder="https://…">` : `<div class="hint">${ACTION_HINT[a] || ''}</div>`}</div>`; };
-  const btnErr = n => issues.filter(x => x.btn === n).map(x => x.msg).join(' ');
+    return `<div class="grid2"><select id="f-ha-${k}" data-cbind="htmlActions.${k}.action">${BUTTON_ACTIONS.map(([v, l]) => opt(v, a, l)).join('')}</select>${a === 'screen' ? `<select id="f-ha-${k}-s" data-cbind="htmlActions.${k}.screen">${opt('', b.screen, 'Screen Name')}${APP_SCREENS.map(x => opt(x, b.screen)).join('')}</select>` : a === 'url' ? `<input id="f-ha-${k}-u" data-cbind="htmlActions.${k}.url" value="${esc(b.url || '')}" placeholder="https://…">` : `<div class="hint">${ACTION_HINT[a] || ''}</div>`}</div>${utmBlock('htmlActions.' + k, b, k === 'primary' ? 'button_1' : 'button_2', k === 'primary' ? 1 : 2, issues, campName())}`; };
+  const btnErr = n => issues.filter(x => x.btn === n && x.id !== 'IA02-18').map(x => x.msg).join(' ');
   const contentErrs = issues.filter(x => !x.btn);
   return `<section class="card"><h3>HTML / Asset Bundle</h3>
     ${field('IA02-11', 'HTML', `<div class="row"><label class="btnlike">Upload .html file<input type="file" accept=".html,text/html" data-act="html-file" hidden></label><button data-act="zip-sample">Upload .zip bundle</button>${(ct.files || []).length ? `<span class="muted">Bundle files: ${ct.files.map(esc).join(', ')}</span>` : ''}</div>
@@ -636,12 +678,14 @@ function viewAnalytics() {
   const hb = c.content && c.content.kind === 'html' ? htmlButtons(c.content.html) : null, hp = hb && hb.find(b => b.action === 'primary'), hs = hb && hb.find(b => b.action !== 'primary');
   const btnRows = BUTTON_ROWS.filter(([k]) => k !== 'b2' || (hb ? hs : c.content && c.content.b2)).map(([k, l]) => { const v = st.buttons[k] || [0, 0]; const lbl = hb ? (k === 'b1' ? `Button 1 · ${esc(resolveTokens(hp ? hp.text : ''))}` : k === 'b2' ? `Button 2 · ${esc(resolveTokens(hs.text))}${hs.action === 'dismiss' ? ' <small>(dismiss)</small>' : ''}` : l) : k === 'b1' ? `Button 1 · ${esc(resolveTokens(c.content.b1.label))}` : k === 'b2' ? `Button 2 · ${esc(resolveTokens(c.content.b2.label))}${c.content.b2.action === 'dismiss' ? ' <small>(dismiss)</small>' : ''}` : l; return `<tr><td>${lbl}</td><td class="num">${fmtN(v[0])}</td><td class="num">${fmtN(v[1])}</td><td class="num">${pct(v[1], st.shownU)}</td></tr>`; });
   const buttons = `<div class="card"><h3>Button breakdown <em>IA05-12</em></h3><table class="tbl"><thead><tr><th>Action</th><th class="num">Total</th><th class="num">Unique</th><th class="num">% of Shown (unique)</th></tr></thead><tbody>${btnRows.join('')}</tbody></table></div>`;
+  const scr = (st.screens || []).slice().sort((a, b) => (U ? b[1] - a[1] : b[2] - a[2]));
+  const screens = `<div class="card"><h3>Screens reached <em>IA05-19</em></h3>${scr.length ? `<table class="tbl"><thead><tr><th>Screen</th><th class="num">${U ? 'People (unique)' : 'Views (total)'}</th></tr></thead><tbody>${scr.map(r => `<tr><td><code>${esc(r[0])}</code></td><td class="num">${fmtN(U ? r[1] : r[2])}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">No app screens reached from this campaign yet.</p>'}<div class="hint">Screens app users opened from this campaign's buttons, counted from "Screen viewed" events that carry its UTM values. ${U ? 'Each person is counted once per screen.' : 'Every view is counted.'}</div></div>`;
   const k = st.kpm;
   const kpm = `<div class="card"><h3>Key Performance Metrics <em>IA05-13</em></h3><div class="kpm">${[['User Engaged', k.engaged]].map(([l, v]) => `<div><small>${l}</small><b>${fmtN(v)}</b></div>`).join('')}</div></div>`;
   const note = c.id === 'IA-10231' ? '<p class="foot">Headline numbers (4,120 / 2,380 / 410 / 1,050; 980 / 610 / 90; buttons 410 / 620 / 390) are from the PRD §4B walkthrough. The rest of the split is illustrative.</p>' : '<p class="foot">Illustrative numbers.</p>';
   const share = p1Share(c, S.tenantImpr7d);
   const p1 = c.priority == 1 ? `<div class="card"><h3>Priority 1 share <em>IA05-15</em></h3><p>Priority 1 share of your app's in-app impressions, last 7 days: <b>${(Math.round(share * 1000) / 10).toFixed(1)}%</b> ${share > P1_OVERUSE ? '<span class="chip warnchip">Priority 1 overuse</span>' : ''}</p><div class="hint">The overuse badge shows above ${Math.round(P1_OVERUSE * 100)}% (§8). It is a warning only; nothing is blocked.</div></div>` : '';
-  return head + err + tiles + p1 + `<div class="grid-an">${funnel}${why}</div><div class="grid-an">${buttons}${kpm}</div>` + note;
+  return head + err + tiles + p1 + `<div class="grid-an">${funnel}${why}</div><div class="grid-an">${buttons}${kpm}</div><div class="grid-an">${screens}</div>` + note;
 }
 
 // ---------- In-app settings ----------
@@ -686,7 +730,6 @@ function onInput(ev) {
   if (a === 'ov-kind') { T.modal.kind = el.value; return; }
   if (a === 'bigtext') { T.bigText = el.checked; return render(); }
   if (a === 'html-file') return loadHtml(el.files[0]);
-  if (a === 'dep') { const d = T.edit.depends; el.checked ? d.push(el.value) : d.splice(d.indexOf(el.value), 1); T.dirty = true; return render(); }
   if (a === 'toggle-archived') { S.showArchived = el.checked; save(); return render(); }
   if (a === 'token' && el.value) { const k = el.value, tgt = el.dataset.target; T.content[tgt] = (T.content[tgt] ? T.content[tgt].replace(/\s*$/, ' ') : '') + `{{${k} | "${TOKENS[k]}"}}`; T.contentDirty = true; return render(); }
   if (a === 'media-mode') { T.content.media = { ...T.content.media, mode: el.value, src: '', error: '' }; return render(); }
