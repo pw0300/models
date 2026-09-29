@@ -13,7 +13,7 @@ const FORMATS = { // §8 Text limits; §4B IA02-01
 };
 const RANGES = { // §8 rules table; §4B SCR-IA-01
   name: [1, 50], n: [1, 10], cap: [1, 5], cooldown: [1, 168], priority: [1, 5],
-  fatigue: [1, 5], timeout: [4, 15], attrH: [1, 720], endMaxH: 720, endDefaultH: 72, triggerDelay: [0, 60], inSessionSpacing: [0, 600],
+  fatigue: [1, 5], timeout: [4, 15], endMaxH: 720, endDefaultH: 72, triggerDelay: [0, 60], inSessionSpacing: [0, 600],
 };
 const DEFAULTS = { n: 1, cap: 3, cooldown: 24, priority: 3, fatigue: 1, timeout: 8, triggerDelay: 0, inSessionSpacing: 60 };
 const DEVICE_LIMIT = 10; // §8 Test devices per tenant
@@ -21,7 +21,6 @@ const QUIET_DEFAULT = ['/checkout', '/payment_gateway', '/document_signing', '/o
 const APP_SCREENS = ['/home', '/project/centralis', '/floor-plans', '/book-visit', '/cost-sheet', '/kyc', '/rm-video-call', '/offers'];
 const TOKENS = { first_name: 'Valued Homebuyer', project_name: 'our new project', city: 'your city', rm_name: 'your relationship manager' };
 const EVENTS = ['Screen viewed', 'Viewed floor plan', 'Opened cost sheet', 'Shortlisted a unit', 'Started a booking'];
-const GOALS = ['Site Visit Scheduled', 'Site Visit Completed', 'Booked']; // §8 Conversion goal events
 const SERVICES = ['Site Visit Booking', 'Cost Sheet Service', 'Payments'];
 const SEGMENTS = [
   { id: 's1', name: 'Viewed 3BHK twice, Pune', users: 11300, reach: 4120 }, // §4B walkthrough + P0 AC
@@ -190,7 +189,6 @@ function validate(c, ctx) { // SCR-IA-01 error copy, in field order
   const s = startMs(c, now), e = Date.parse(c.end);
   if (c.startMode === 'schedule' && !(s > now)) out.push({ id: 'IA01-14', msg: 'Start time must be in the future.' });
   if (!(e > s) || e - s > RANGES.endMaxH * H) out.push({ id: 'IA01-15', msg: 'End must be after start and within 30 days of it.' });
-  if (c.goal && c.attrH !== '' && c.attrH != null && !inRange(c.attrH, RANGES.attrH)) out.push({ id: 'IA01-13', msg: 'Attribution window must be between 1 hour and 30 days.' });
   return out;
 }
 
@@ -260,7 +258,7 @@ const SAMPLE_CSS = `.due { padding: 18px; font-family: system-ui, sans-serif; co
 function seed() {
   const now = Date.now();
   const diwaliContent = { format: 'modal', headline: '{{first_name | "Valued Homebuyer"}}, your Diwali 3BHK visit', body: 'Festive prices on Centralis 3BHK homes end 3 Nov. Book a site visit and meet {{rm_name | "your relationship manager"}} at the sample flat.', media: { mode: 'url', src: SAMPLE_IMG, ratio: '16:9', error: '' }, b1: { label: 'Book a visit', screen: '/book-visit' }, b2: { label: 'Maybe later', action: 'dismiss', screen: '' }, theme: { mode: 'light', color: '#4f46e5', radius: 'soft', dim: true }, bgTap: true, timeout: 8 };
-  const base = { trigger: { type: 'event', event: 'Screen viewed', screen: '/project/centralis', n: 1 }, cap: 3, cooldown: 24, priority: 3, depends: [], onlineCheck: false, triggerDelay: DEFAULTS.triggerDelay, inSessionSpacing: DEFAULTS.inSessionSpacing, goal: '', attrH: '', startMode: 'schedule', pending: null };
+  const base = { trigger: { type: 'event', event: 'Screen viewed', screen: '/project/centralis', n: 1 }, cap: 3, cooldown: 24, priority: 3, depends: [], onlineCheck: false, triggerDelay: DEFAULTS.triggerDelay, inSessionSpacing: DEFAULTS.inSessionSpacing, startMode: 'schedule', pending: null };
   const pubStart = now - 44 * H;
   return {
     role: 'marketer', view: 'list', id: null, tab: 'analytics', mode: 'unique', version: 'all', showArchived: false, platform: 'android',
@@ -269,25 +267,25 @@ function seed() {
     devices: [{ id: 'd1', name: 'QA Pixel 9', model: 'Pixel 9', platform: 'android' }, { id: 'd2', name: 'Meera iPhone', model: 'iPhone 16 Pro', platform: 'ios' }],
     seq: 10242, modelIdx: 0, tenantImpr7d: 5200, // demo: the tenant's in-app impressions over the last 7 days (IA05-15)
     campaigns: [
-      { ...clone(base), id: 'IA-10231', name: 'Diwali 3BHK site visit', status: 'Ended', version: 1, segment: 's1', content: diwaliContent, cap: 2, depends: ['Site Visit Booking'], goal: 'Site Visit Scheduled', attrH: '', start: '2025-10-31T10:00', end: '2025-11-03T23:59', createdOn: '2025-10-28T16:20', createdBy: 'Meera Kulkarni', updated: now,
-        stats: { all: { eligible: 4120, shownU: 2380, shownT: 2800, clickedU: 410, clickedT: 410, dismissedU: 1050, dismissedT: 1285, converted: 96, still: 0,
+      { ...clone(base), id: 'IA-10231', name: 'Diwali 3BHK site visit', status: 'Ended', version: 1, segment: 's1', content: diwaliContent, cap: 2, depends: ['Site Visit Booking'], start: '2025-10-31T10:00', end: '2025-11-03T23:59', createdOn: '2025-10-28T16:20', createdBy: 'Meera Kulkarni', updated: now,
+        stats: { all: { eligible: 4120, shownU: 2380, shownT: 2800, clickedU: 410, clickedT: 410, dismissedU: 1050, dismissedT: 1285, still: 0,
           reasons: { optout: 8, noopen: 980, notrigger: 610, quiet: 12, outage: 4, fatigue: 30, priority: 90, online: 0, offline: 6 },
           buttons: { b1: [410, 410], b2: [700, 620], x: [460, 390], back: [80, 70], bg: [45, 40], swipe: [0, 0], timeout: [1105, 940] },
-          kpm: { engaged: 410, sv: 96, svc: 41, booked: 7 } } } },
+          kpm: { engaged: 410 } } } },
       { ...clone(base), id: 'IA-10238', name: 'Centralis floor-plan nudge', status: 'Published', version: 2, segment: 's2', trigger: { type: 'event', event: 'Viewed floor plan', screen: '', n: 2 },
         content: { ...clone(diwaliContent), format: 'top', headline: 'Floor plans for {{project_name | "our new project"}}', body: 'See the 3BHK corner layout with the east deck.', media: { mode: 'none', src: '', ratio: '1:1', error: '' }, b1: { label: 'See layout', screen: '/floor-plans' }, b2: null },
         start: toLocal(pubStart), end: toLocal(defaultEnd(pubStart)), createdOn: toLocal(pubStart - 20 * H), createdBy: 'Pratik Wankhede', updated: now,
         stats: {
-          all: { eligible: 1180, shownU: 610, shownT: 833, clickedU: 92, clickedT: 92, dismissedU: 140, dismissedT: 151, converted: 0, still: 570, reasons: {}, buttons: { b1: [92, 92], x: [110, 104], swipe: [41, 38], timeout: [590, 455] }, kpm: { engaged: 92, sv: 0, svc: 0, booked: 0 } },
-          1: { eligible: 1180, shownU: 402, shownT: 520, clickedU: 51, clickedT: 51, dismissedU: 88, dismissedT: 95, converted: 0, still: null, reasons: {}, buttons: { b1: [51, 51], x: [70, 66], swipe: [25, 24], timeout: [374, 290] }, kpm: { engaged: 51, sv: 0, svc: 0, booked: 0 } },
-          2: { eligible: 1180, shownU: 263, shownT: 313, clickedU: 41, clickedT: 41, dismissedU: 55, dismissedT: 56, converted: 0, still: null, reasons: {}, buttons: { b1: [41, 41], x: [40, 38], swipe: [16, 14], timeout: [216, 165] }, kpm: { engaged: 41, sv: 0, svc: 0, booked: 0 } } } },
+          all: { eligible: 1180, shownU: 610, shownT: 833, clickedU: 92, clickedT: 92, dismissedU: 140, dismissedT: 151, still: 570, reasons: {}, buttons: { b1: [92, 92], x: [110, 104], swipe: [41, 38], timeout: [590, 455] }, kpm: { engaged: 92 } },
+          1: { eligible: 1180, shownU: 402, shownT: 520, clickedU: 51, clickedT: 51, dismissedU: 88, dismissedT: 95, still: null, reasons: {}, buttons: { b1: [51, 51], x: [70, 66], swipe: [25, 24], timeout: [374, 290] }, kpm: { engaged: 51 } },
+          2: { eligible: 1180, shownU: 263, shownT: 313, clickedU: 41, clickedT: 41, dismissedU: 55, dismissedT: 56, still: null, reasons: {}, buttons: { b1: [41, 41], x: [40, 38], swipe: [16, 14], timeout: [216, 165] }, kpm: { engaged: 41 } } } },
       { ...clone(base), id: 'IA-10241', name: 'Price drop — Tower B', status: 'Draft', version: 0, segment: 's1', trigger: { type: 'open', event: '', screen: '', n: 1 },
         content: { ...clone(diwaliContent), format: 'drawer', headline: 'Tower B prices just dropped', body: 'Two-bedroom homes in Tower B are now ₹6 lakh lower. See the new cost sheet.', media: { mode: 'none', src: '', ratio: '16:9', error: '' }, b1: { label: 'See new prices', screen: '/offers/legacy' }, b2: null },
         startMode: 'now', start: toLocal(now), end: toLocal(defaultEnd(now)), createdOn: toLocal(now - 3 * H), createdBy: 'Pratik Wankhede', updated: now, stats: {} },
       { ...clone(base), id: 'IA-10240', name: 'Payment due: Centralis demand letter', status: 'Published', version: 1, segment: 's2', priority: 1, cap: 5, cooldown: 12, trigger: { type: 'open', event: '', screen: '', n: 1 }, p1Impr7d: 2080,
         content: { ...clone(diwaliContent), kind: 'html', format: 'modal', html: SAMPLE_HTML, css: SAMPLE_CSS, files: ['hero.webp'], htmlActions: { primary: { action: 'screen', screen: '/cost-sheet', url: '' } } },
         start: toLocal(pubStart), end: toLocal(defaultEnd(pubStart)), createdOn: toLocal(pubStart - 4 * H), createdBy: 'Meera Kulkarni', updated: now,
-        stats: { all: { eligible: 900, shownU: 520, shownT: 2080, clickedU: 300, clickedT: 330, dismissedU: 150, dismissedT: 400, converted: 0, still: 380, reasons: {}, buttons: { b1: [330, 300], b2: [400, 150] }, kpm: { engaged: 300, sv: 0, svc: 0, booked: 0 } } } },
+        stats: { all: { eligible: 900, shownU: 520, shownT: 2080, clickedU: 300, clickedT: 330, dismissedU: 150, dismissedT: 400, still: 380, reasons: {}, buttons: { b1: [330, 300], b2: [400, 150] }, kpm: { engaged: 300 } } } },
     ],
   };
 }
@@ -427,7 +425,7 @@ function viewList() {
 // ---------- SCR-IA-01 setup ----------
 function newCampaign() {
   const now = Date.now();
-  return { id: null, name: '', status: 'Draft', version: 0, segment: '', content: null, trigger: { type: 'open', event: '', screen: '', n: DEFAULTS.n }, cap: DEFAULTS.cap, cooldown: DEFAULTS.cooldown, priority: DEFAULTS.priority, depends: [], onlineCheck: false, triggerDelay: DEFAULTS.triggerDelay, inSessionSpacing: DEFAULTS.inSessionSpacing, goal: '', attrH: '', startMode: 'now', start: toLocal(now + H), end: toLocal(defaultEnd(now)), createdBy: 'Pratik Wankhede', stats: {}, pending: null, reachAt: null };
+  return { id: null, name: '', status: 'Draft', version: 0, segment: '', content: null, trigger: { type: 'open', event: '', screen: '', n: DEFAULTS.n }, cap: DEFAULTS.cap, cooldown: DEFAULTS.cooldown, priority: DEFAULTS.priority, depends: [], onlineCheck: false, triggerDelay: DEFAULTS.triggerDelay, inSessionSpacing: DEFAULTS.inSessionSpacing, startMode: 'now', start: toLocal(now + H), end: toLocal(defaultEnd(now)), createdBy: 'Pratik Wankhede', stats: {}, pending: null, reachAt: null };
 }
 function field(id, label, inner, err, hint) {
   return `<div class="field" data-f="${id}"><label>${label} <em>${id}</em></label>${inner}${hint ? `<div class="hint">${hint}</div>` : ''}${err ? `<div class="err">${esc(err)}</div>` : ''}</div>`;
@@ -437,10 +435,9 @@ function viewSetup() {
   const sg = seg(c.segment), orig = camp(c.id);
   const editingLive = orig && ['Published', 'Paused'].includes(orig.status);
   const tiles = [['WhatsApp', '✆'], ['Email', '✉'], ['SMS', '✎'], ['AI Calling', '☏'], ['RCS', '◈'], ['Push Notify', '🔔'], ['In-App', '▣']];
-  const sMs = startMs(c, cx.now), durH = Math.max(1, Math.round((Date.parse(c.end) - sMs) / H));
-  const opt = (v, cur, label) => `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(label == null ? v : label)}</option>`;
+    const opt = (v, cur, label) => `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(label == null ? v : label)}</option>`;
   const num = (path, v, r) => `<input type="number" id="f-${path}" data-bind="${path}" data-num="1" min="${r[0]}" max="${r[1]}" value="${esc(v)}">`;
-  return `<div class="page-head"><div><h1>One-Time Campaign Setup</h1><p class="sub">SCR-IA-01 · same page as other channels; picking In-App adds When to show, Display rules, Goal, and Start plus End.</p></div><div>${orig ? statusChip(orig.status) : statusChip('Draft')}</div></div>
+  return `<div class="page-head"><div><h1>One-Time Campaign Setup</h1><p class="sub">SCR-IA-01 · same page as other channels; picking In-App adds When to show, Display rules, and Start plus End.</p></div><div>${orig ? statusChip(orig.status) : statusChip('Draft')}</div></div>
   ${editingLive ? `<div class="banner info">Editing a live campaign creates draft <b>v${orig.version + 1}</b>. Buyers keep seeing v${orig.version} until you publish.</div>` : ''}
   <div class="split"><div class="stack">
   <section class="card"><h3>Select the Channel</h3><div class="tiles">${tiles.map(([n, i]) => { const ia = n === 'In-App'; const dis = ia && !S.settings.sdk; return `<button class="tile ${ia ? 'sel' : ''} ${dis ? 'dis' : ''}" data-act="tile" data-tile="${n}" ${dis ? 'aria-disabled="true" title="Connect your app to Sirrus to use In-App."' : ''}><span>${i}</span>${n}${ia ? '<em>IA01-01</em>' : ''}</button>`; }).join('')}</div>
@@ -467,10 +464,6 @@ function viewSetup() {
     ${field('IA01-10', 'Online check', `<label class="switch"><input type="checkbox" data-bind="onlineCheck" ${c.onlineCheck ? 'checked' : ''}><span></span> ${c.onlineCheck ? 'On' : 'Off'}</label>`, '', 'Confirms with Sirrus that the offer is still valid right before showing (waits up to 1.5s). Offline or no answer = not shown.')}
     ${field('IA01-16', 'Trigger delay (seconds) · In-session spacing', `<div class="grid2"><div><small>Trigger delay (0–60s)</small>${num('triggerDelay', c.triggerDelay == null ? 0 : c.triggerDelay, RANGES.triggerDelay)}</div><div><small>Spacing between overlays (0–600s)</small>${num('inSessionSpacing', c.inSessionSpacing == null ? 60 : c.inSessionSpacing, RANGES.inSessionSpacing)}</div></div>`, errOf('IA01-16') || errOf('IA01-17'), 'Delays popup on screen transition; prevents rapid overlay stacking within the same session.')}
     <div class="field ro" data-f="IA01-11"><label>App-wide rules <em>IA01-11</em></label><div class="rorow"><span>Fatigue limit</span><b>${S.settings.fatigue} overlay per 24h</b></div><div class="rorow"><span>Quiet screens</span><b>${S.settings.quiet.map(esc).join(', ')}</b></div>${S.role === 'admin' ? '<button class="link" data-act="nav-settings">Edit in In-app settings</button>' : '<div class="hint">Read-only. A Marketing Admin can change these.</div>'}</div>
-  </section>
-  <section class="card"><h3>Goal</h3>
-    ${field('IA01-12', 'Conversion goal (optional)', `<select id="f-goal" data-bind="goal">${opt('', c.goal, 'No goal')}${GOALS.map(g => opt(g, c.goal)).join('')}</select>`, '', 'Counts a conversion when the buyer clicks, then does this within the attribution window.')}
-    ${c.goal ? field('IA01-13', 'Attribution window (hours)', `<input type="number" id="f-attrH" data-bind="attrH" data-num="1" min="1" max="720" value="${esc(c.attrH)}" placeholder="${durH} (Start to End)">`, errOf('IA01-13'), `Default = Start to End (${durH}h). Range 1 hour to 30 days (720h).`) : ''}
   </section>
   <section class="card"><h3>Start and End</h3>
     ${field('IA01-14', 'Start', `<div class="seg2"><label class="radio"><input type="radio" name="sm" data-bind="startMode" value="now" ${c.startMode === 'now' ? 'checked' : ''}> Now</label><label class="radio"><input type="radio" name="sm" data-bind="startMode" value="schedule" ${c.startMode === 'schedule' ? 'checked' : ''}> Schedule</label></div>${c.startMode === 'schedule' ? `<input type="datetime-local" id="f-start" data-bind="start" value="${esc(c.start)}">` : ''}`, errOf('IA01-14'))}
@@ -627,9 +620,9 @@ function viewAnalytics() {
   const err = S.demo.resultsDown ? `<div class="banner err">Couldn't load results. Refresh to try again. <span class="muted">Showing numbers from ${fmtTime(T.refreshAt)}.</span></div>` : '';
   const shown = U ? st.shownU : st.shownT, clicked = U ? st.clickedU : st.clickedT, dism = U ? st.dismissedU : st.dismissedT;
   const tile = (id, label, v, sub, people) => `<div class="tile-m"><small>${label} <em>${id}</em></small><b>${v}</b><span>${sub}</span>${people ? '<i class="people">people</i>' : ''}</div>`;
-  const tiles = `<div class="tiles-m">${tile('IA05-05', 'Eligible', fmtN(st.eligible), '&nbsp;', true)}${tile('IA05-06', 'Shown', fmtN(shown), pct(shown, st.eligible) + ' of Eligible')}${tile('IA05-07', 'Clicked', fmtN(clicked), pct(clicked, shown) + ' of Shown')}${tile('IA05-08', 'Dismissed', fmtN(dism), pct(dism, shown) + ' of Shown')}${c.goal ? tile('IA05-09', 'Converted', fmtN(st.converted), pct(st.converted, st.clickedU) + ' of Clicked', true) : tile('IA05-09', 'Converted', '—', 'No goal set', true)}</div>`;
-  const steps = [['Eligible', st.eligible], ['Shown', st.shownU], ['Clicked', st.clickedU], ['Converted', c.goal ? st.converted : null]];
-  const funnel = `<div class="card"><h3>In-App Funnel <em>IA05-10</em></h3><table class="tbl"><thead><tr><th>Step</th><th class="num">People</th><th class="num">% of previous step</th><th></th></tr></thead><tbody>${steps.map(([l, v], i) => `<tr><td>${l}</td><td class="num">${v == null ? '—' : fmtN(v)}</td><td class="num">${i === 0 ? '—' : v == null ? 'No goal set' : pct(v, steps[i - 1][1])}</td><td class="barcell"><i style="width:${v == null || !st.eligible ? 0 : Math.max(1, v / st.eligible * 100)}%"></i></td></tr>`).join('')}</tbody></table><div class="hint">Funnel steps are people in both modes. No Cost column for In-App.</div></div>`;
+  const tiles = `<div class="tiles-m">${tile('IA05-05', 'Eligible', fmtN(st.eligible), '&nbsp;', true)}${tile('IA05-06', 'Shown', fmtN(shown), pct(shown, st.eligible) + ' of Eligible')}${tile('IA05-07', 'Clicked', fmtN(clicked), pct(clicked, shown) + ' of Shown')}${tile('IA05-08', 'Dismissed', fmtN(dism), pct(dism, shown) + ' of Shown')}</div>`;
+  const steps = [['Eligible', st.eligible], ['Shown', st.shownU], ['Clicked', st.clickedU]];
+  const funnel = `<div class="card"><h3>In-App Funnel <em>IA05-10</em></h3><table class="tbl"><thead><tr><th>Step</th><th class="num">People</th><th class="num">% of previous step</th><th></th></tr></thead><tbody>${steps.map(([l, v], i) => `<tr><td>${l}</td><td class="num">${fmtN(v)}</td><td class="num">${i === 0 ? '—' : pct(v, steps[i - 1][1])}</td><td class="barcell"><i style="width:${!st.eligible ? 0 : Math.max(1, v / st.eligible * 100)}%"></i></td></tr>`).join('')}</tbody></table><div class="hint">Funnel steps are people in both modes. No Cost column for In-App.</div></div>`;
   let why;
   if (S.version !== 'all') why = `<div class="card"><h3>Why not shown <em>IA05-11</em></h3><p class="muted">Counted across the whole campaign. Pick All versions to see it.</p></div>`;
   else {
@@ -644,8 +637,8 @@ function viewAnalytics() {
   const btnRows = BUTTON_ROWS.filter(([k]) => k !== 'b2' || (hb ? hs : c.content && c.content.b2)).map(([k, l]) => { const v = st.buttons[k] || [0, 0]; const lbl = hb ? (k === 'b1' ? `Button 1 · ${esc(resolveTokens(hp ? hp.text : ''))}` : k === 'b2' ? `Button 2 · ${esc(resolveTokens(hs.text))}${hs.action === 'dismiss' ? ' <small>(dismiss)</small>' : ''}` : l) : k === 'b1' ? `Button 1 · ${esc(resolveTokens(c.content.b1.label))}` : k === 'b2' ? `Button 2 · ${esc(resolveTokens(c.content.b2.label))}${c.content.b2.action === 'dismiss' ? ' <small>(dismiss)</small>' : ''}` : l; return `<tr><td>${lbl}</td><td class="num">${fmtN(v[0])}</td><td class="num">${fmtN(v[1])}</td><td class="num">${pct(v[1], st.shownU)}</td></tr>`; });
   const buttons = `<div class="card"><h3>Button breakdown <em>IA05-12</em></h3><table class="tbl"><thead><tr><th>Action</th><th class="num">Total</th><th class="num">Unique</th><th class="num">% of Shown (unique)</th></tr></thead><tbody>${btnRows.join('')}</tbody></table></div>`;
   const k = st.kpm;
-  const kpm = `<div class="card"><h3>Key Performance Metrics <em>IA05-13</em></h3><div class="kpm">${[['User Engaged', k.engaged], ['Site Visit Scheduled', k.sv], ['Site Visit Completed', k.svc], ['Booked In', k.booked]].map(([l, v]) => `<div><small>${l}</small><b>${fmtN(v)}</b></div>`).join('')}</div><div class="hint">Only goal events after a click, inside the attribution window, count here.</div></div>`;
-  const note = c.id === 'IA-10231' ? '<p class="foot">Headline numbers (4,120 / 2,380 / 410 / 1,050 / 96; 980 / 610 / 90; buttons 410 / 620 / 390) are from the PRD §4B walkthrough. The rest of the split is illustrative.</p>' : '<p class="foot">Illustrative numbers.</p>';
+  const kpm = `<div class="card"><h3>Key Performance Metrics <em>IA05-13</em></h3><div class="kpm">${[['User Engaged', k.engaged]].map(([l, v]) => `<div><small>${l}</small><b>${fmtN(v)}</b></div>`).join('')}</div></div>`;
+  const note = c.id === 'IA-10231' ? '<p class="foot">Headline numbers (4,120 / 2,380 / 410 / 1,050; 980 / 610 / 90; buttons 410 / 620 / 390) are from the PRD §4B walkthrough. The rest of the split is illustrative.</p>' : '<p class="foot">Illustrative numbers.</p>';
   const share = p1Share(c, S.tenantImpr7d);
   const p1 = c.priority == 1 ? `<div class="card"><h3>Priority 1 share <em>IA05-15</em></h3><p>Priority 1 share of your app's in-app impressions, last 7 days: <b>${(Math.round(share * 1000) / 10).toFixed(1)}%</b> ${share > P1_OVERUSE ? '<span class="chip warnchip">Priority 1 overuse</span>' : ''}</p><div class="hint">The overuse badge shows above ${Math.round(P1_OVERUSE * 100)}% (§8). It is a warning only; nothing is blocked.</div></div>` : '';
   return head + err + tiles + p1 + `<div class="grid-an">${funnel}${why}</div><div class="grid-an">${buttons}${kpm}</div>` + note;
@@ -755,7 +748,7 @@ function applyTx(c, ev, role) {
   if (ev === 'start' && !c.stats.all) c.stats.all = zeroStats(c);
   save(); return true;
 }
-function zeroStats(c) { const sg = seg(c.segment); const e = sg ? sg.reach : 0; return { eligible: e, shownU: 0, shownT: 0, clickedU: 0, clickedT: 0, dismissedU: 0, dismissedT: 0, converted: 0, still: e, reasons: {}, buttons: {}, kpm: { engaged: 0, sv: 0, svc: 0, booked: 0 } }; }
+function zeroStats(c) { const sg = seg(c.segment); const e = sg ? sg.reach : 0; return { eligible: e, shownU: 0, shownT: 0, clickedU: 0, clickedT: 0, dismissedU: 0, dismissedT: 0, still: e, reasons: {}, buttons: {}, kpm: { engaged: 0 } }; }
 function persistEdit(publish) {
   const e = clone(T.edit), now = Date.now(), orig = camp(e.id);
   if (publish) {
