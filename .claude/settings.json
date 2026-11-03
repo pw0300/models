@@ -1,0 +1,73 @@
+{
+  "deniedMcpServers": [
+    {
+      "serverUrl": "https://mcp.slack.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.notion.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.linear.app/*"
+    },
+    {
+      "serverUrl": "https://mcp.figma.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.canva.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.amplitude.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.eu.amplitude.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.intercom.com/*"
+    },
+    {
+      "serverUrl": "https://app.pendo.io/mcp/*"
+    },
+    {
+      "serverUrl": "https://api.fireflies.ai/mcp"
+    },
+    {
+      "serverUrl": "https://mcp.clickup.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.monday.com/*"
+    },
+    {
+      "serverUrl": "https://api.ahrefs.com/mcp/*"
+    },
+    {
+      "serverUrl": "https://mcp.similarweb.com"
+    },
+    {
+      "serverUrl": "https://mcp.klaviyo.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.supermetrics.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.hubspot.com/*"
+    },
+    {
+      "serverUrl": "https://mcp.asana.com/*"
+    },
+    {
+      "serverName": "plugin:productivity:atlassian"
+    },
+    {
+      "serverName": "plugin:product-management:atlassian"
+    },
+    {
+      "serverName": "plugin:operations:atlassian"
+    },
+    {
+      "serverName": "plugin:design:atlassian"
+    },
+    {
+      "serverName": "plugin:marketing:atlassian"
+    }
+  ]
+}
